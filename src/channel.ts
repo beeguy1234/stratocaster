@@ -78,22 +78,41 @@ export class StratoChannel {
 
         await this.write(toSend);
 
-        // TODO timeout
-        for await (const m of this.receive(opts)) {
-            if (Buffer.isBuffer(m.data) || typeof m.data === "string") {
-                continue;
-            }
+        // --- BUGFIX: Maak een controller aan om de onderliggende socket netjes af te breken ---
+        const controller = new AbortController();
+        const onUserAbort = () => controller.abort();
 
-            // special cases:
-            if (message === PING_PAYLOAD && m.data.type === "PONG") {
-                return m.data;
-            }
+        if (opts.signal) {
+            if (opts.signal.aborted) throwCancellationIfAborted(opts.signal);
+            opts.signal.addEventListener("abort", onUserAbort);
+        }
 
-            // otherwise...
-            if (m.data.requestId === toSend.requestId) {
-                return m.data;
+        try {
+            // We sturen ons eigen controller.signal mee ipv de onbeschermde opts.signal
+            for await (const m of this.receive({ ...opts, signal: controller.signal })) {
+                if (Buffer.isBuffer(m.data) || typeof m.data === "string") {
+                    continue;
+                }
+
+                // special cases:
+                if (message === PING_PAYLOAD && m.data.type === "PONG") {
+                    return m.data;
+                }
+
+                // otherwise...
+                if (m.data.requestId === toSend.requestId) {
+                    return m.data;
+                }
+            }
+        } finally {
+            // GARANTIE: Ruim de iterator/luisteraar onmiddellijk op in het socket object
+            controller.abort();
+            
+            if (opts.signal) {
+                opts.signal.removeEventListener("abort", onUserAbort);
             }
         }
+        // -----------------------------------------------------------------------------------
 
         throwCancellationIfAborted(opts.signal);
 
