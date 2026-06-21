@@ -156,15 +156,20 @@ export class ChromecastDevice {
         const heartbeat = new StratoChannel(s, HEARTBEAT_NS);
         const timeout = setInterval(() => {
             (async () => {
-                const result = await Promise.race([
-                    heartbeat.send(PING_PAYLOAD),
-                    delay(HEARTBEAT_TIMEOUT),
-                ]);
-
-                debug("result=", result);
-                if (!result) {
-                    // timed out
-                    debug("failed to receive heartbeat within deadline");
+                try {
+                    const result = await Promise.race([
+                        heartbeat.send(PING_PAYLOAD),
+                        delay(HEARTBEAT_TIMEOUT),
+                        ]);
+                    debug("result=", result);
+                    if (!result) {
+                        // timed out
+                        debug("failed to receive heartbeat within deadline");
+                        s.close();
+                    }
+                } catch (e) {
+                    // FIX: Vang de ERR_STREAM_WRITE_AFTER_END (of andere netwerkfouten) af
+                    debug("heartbeat ping mislukt (verbinding al verbroken):", e);
                     s.close();
                 }
             })();
